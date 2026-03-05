@@ -124,5 +124,5 @@ pool.on('error', (err) => {
 
 module.exports = {
   pool,
-  initializeDatabase
+  initializeDatabase // 导出初始化函数
 };
