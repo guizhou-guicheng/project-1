@@ -13,7 +13,7 @@ var { initializeDatabase } = require('./db');
 
 var app = express();
 
-// 视图引擎设置
+// 视图引擎设置//你好
 app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'pug');
 
