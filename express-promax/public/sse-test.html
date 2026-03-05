@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SSE测试页面</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .container {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .section {
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      padding: 15px;
+    }
+    h2 {
+      margin-top: 0;
+      color: #333;
+    }
+    .status {
+      padding: 10px;
+      border-radius: 3px;
+      margin-bottom: 10px;
+    }
+    .status.connected {
+      background-color: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    .status.disconnected {
+      background-color: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+    .message-list {
+      height: 300px;
+      overflow-y: auto;
+      border: 1px solid #ddd;
+      padding: 10px;
+      background-color: #f9f9f9;
+    }
+    .message {
+      margin-bottom: 10px;
+      padding: 8px;
+      border-radius: 3px;
+      background-color: #fff;
+      border-left: 3px solid #007bff;
+    }
+    .message.event {
+      border-left-color: #28a745;
+    }
+    .message.heartbeat {
+      border-left-color: #ffc107;
+      background-color: #fff3cd;
+    }
+    .controls {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 3px;
+      background-color: #007bff;
+      color: white;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #0069d9;
+    }
+    button:disabled {
+      background-color: #6c757d;
+      cursor: not-allowed;
+    }
+    .form-group {
+      margin-bottom: 10px;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    input, textarea {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 3px;
+      box-sizing: border-box;
+    }
+    textarea {
+      height: 100px;
+      resize: vertical;
+    }
+    .stats {
+      background-color: #e9ecef;
+      padding: 10px;
+      border-radius: 3px;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Server-Sent Events (SSE) 测试</h1>
+    
+    <!-- SSE连接状态 -->
+    <div class="section">
+      <h2>连接状态</h2>
+      <div id="status" class="status disconnected">
+        未连接
+      </div>
+      <div class="controls">
+        <button id="connectBtn">连接SSE</button>
+        <button id="disconnectBtn" disabled>断开连接</button>
+      </div>
+      <div class="stats">
+        <p>连接ID: <span id="clientId">-</span></p>
+        <p>连接时间: <span id="connectTime">-</span></p>
+        <p>接收消息数: <span id="messageCount">0</span></p>
+      </div>
+    </div>
+    
+    <!-- 消息列表 -->
+    <div class="section">
+      <h2>消息列表</h2>
+      <div id="messageList" class="message-list">
+        <div class="message">等待连接...</div>
+      </div>
+    </div>
+    
+    <!-- 广播消息 -->
+    <div class="section">
+      <h2>广播消息</h2>
+      <div class="form-group">
+        <label for="eventType">事件类型:</label>
+        <input type="text" id="eventType" value="custom" placeholder="输入事件类型">
+      </div>
+      <div class="form-group">
+        <label for="messageData">消息数据:</label>
+        <textarea id="messageData" placeholder="输入JSON格式的消息数据">{"message": "Hello SSE!", "timestamp": "{{timestamp}}"}</textarea>
+      </div>
+      <button id="broadcastBtn">发送广播</button>
+      <div id="broadcastResult" style="margin-top: 10px;"></div>
+    </div>
+    
+    <!-- 连接统计 -->
+    <div class="section">
+      <h2>连接统计</h2>
+      <button id="statsBtn">获取统计信息</button>
+      <div id="statsResult" style="margin-top: 10px;"></div>
+    </div>
+  </div>
+
+  <script>
+    let eventSource = null;
+    let messageCount = 0;
+    let clientId = null;
+    
+    // 连接SSE
+    document.getElementById('connectBtn').addEventListener('click', () => {
+      if (eventSource) {
+        eventSource.close();
+      }
+      
+      // 建立SSE连接
+      eventSource = new EventSource('/sse/stream');
+      
+      // 处理连接打开
+      eventSource.onopen = () => {
+        document.getElementById('status').className = 'status connected';
+        document.getElementById('status').textContent = '已连接';
+        document.getElementById('connectBtn').disabled = true;
+        document.getElementById('disconnectBtn').disabled = false;
+        document.getElementById('connectTime').textContent = new Date().toLocaleString();
+      };
+      
+      // 处理默认消息
+      eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        addMessage('message', data, event.lastEventId);
+      };
+      
+      // 处理欢迎消息
+      eventSource.addEventListener('welcome', (event) => {
+        const data = JSON.parse(event.data);
+        clientId = data.clientId;
+        document.getElementById('clientId').textContent = clientId;
+        addMessage('event', data, event.lastEventId);
+      });
+      
+      // 处理心跳消息
+      eventSource.addEventListener('heartbeat', (event) => {
+        const data = JSON.parse(event.data);
+        addMessage('heartbeat', data, event.lastEventId);
+      });
+      
+      // 处理自定义消息
+      eventSource.addEventListener('data', (event) => {
+        const data = JSON.parse(event.data);
+        addMessage('event', data, event.lastEventId);
+      });
+      
+      // 处理错误
+      eventSource.onerror = (error) => {
+        console.error('SSE错误:', error);
+        document.getElementById('status').className = 'status disconnected';
+        document.getElementById('status').textContent = '连接错误';
+        document.getElementById('connectBtn').disabled = false;
+        document.getElementById('disconnectBtn').disabled = true;
+      };
+    });
+    
+    // 断开连接
+    document.getElementById('disconnectBtn').addEventListener('click', () => {
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+        document.getElementById('status').className = 'status disconnected';
+        document.getElementById('status').textContent = '已断开';
+        document.getElementById('connectBtn').disabled = false;
+        document.getElementById('disconnectBtn').disabled = true;
+      }
+    });
+    
+    // 发送广播消息
+    document.getElementById('broadcastBtn').addEventListener('click', async () => {
+      const eventType = document.getElementById('eventType').value;
+      let messageData = document.getElementById('messageData').value;
+      
+      // 替换时间戳占位符
+      messageData = messageData.replace('{{timestamp}}', Date.now());
+      
+      try {
+        const response = await fetch('/sse/broadcast', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            event: eventType,
+            data: JSON.parse(messageData)
+          })
+        });
+        
+        const result = await response.json();
+        document.getElementById('broadcastResult').innerHTML = `
+          <div style="padding: 10px; background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; border-radius: 3px;">
+            <strong>广播结果:</strong><br>
+            状态: ${result.success ? '成功' : '失败'}<br>
+            消息: ${result.message}<br>
+            事件类型: ${result.data?.event}<br>
+            发送到: ${result.data?.sentTo} 个客户端<br>
+            总客户端数: ${result.data?.totalClients}
+          </div>
+        `;
+      } catch (error) {
+        document.getElementById('broadcastResult').innerHTML = `
+          <div style="padding: 10px; background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 3px;">
+            <strong>广播失败:</strong><br>
+            ${error.message}
+          </div>
+        `;
+      }
+    });
+    
+    // 获取统计信息
+    document.getElementById('statsBtn').addEventListener('click', async () => {
+      try {
+        const response = await fetch('/sse/stats');
+        const result = await response.json();
+        document.getElementById('statsResult').innerHTML = `
+          <div style="padding: 10px; background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; border-radius: 3px;">
+            <strong>统计信息:</strong><br>
+            连接客户端数: ${result.data?.connectedClients}<br>
+            时间戳: ${new Date(result.data?.timestamp).toLocaleString()}
+          </div>
+        `;
+      } catch (error) {
+        document.getElementById('statsResult').innerHTML = `
+          <div style="padding: 10px; background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 3px;">
+            <strong>获取统计信息失败:</strong><br>
+            ${error.message}
+          </div>
+        `;
+      }
+    });
+    
+    // 添加消息到列表
+    function addMessage(type, data, id) {
+      messageCount++;
+      document.getElementById('messageCount').textContent = messageCount;
+      
+      const messageList = document.getElementById('messageList');
+      const messageDiv = document.createElement('div');
+      messageDiv.className = `message ${type}`;
+      
+      let content = `<strong>时间:</strong> ${new Date().toLocaleString()}`;
+      if (id) {
+        content += `<br><strong>ID:</strong> ${id}`;
+      }
+      content += `<br><strong>数据:</strong> ${JSON.stringify(data, null, 2)}`;
+      
+      messageDiv.innerHTML = content;
+      messageList.appendChild(messageDiv);
+      messageList.scrollTop = messageList.scrollHeight;
+    }
+  </script>
+</body>
+</html>

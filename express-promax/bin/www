@@ -1,0 +1,230 @@
+#!/usr/bin/env node
+
+/**
+ * 模块依赖
+ */
+
+var app = require('../app');
+var debug = require('debug')('express:server');
+var http = require('http');
+var WebSocket = require('ws');
+
+/**
+ * 从环境变量获取端口并存储在Express中
+ */
+
+var port = normalizePort(process.env.PORT || '3000');
+app.set('port', port);
+
+/**
+ * 创建HTTP服务器
+ */
+
+var server = http.createServer(app);
+
+/**
+ * 创建带有安全选项的WebSocket服务器
+ */
+
+var wss = new WebSocket.Server({ 
+  server,
+  // 安全性：拒绝来自未授权来源的连接
+  verifyClient: function(info, callback) {
+    // 允许来自localhost和相同来源的连接
+    var origin = info.origin;
+    var allowedOrigins = ['http://localhost:3000', 'http://127.0.0.1:3000'];
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(true);
+    } else {
+      console.warn('拒绝来自未授权来源的WebSocket连接:', origin);
+      callback(false, 403, '未授权的来源');
+    }
+  }
+});
+
+// 存储连接的客户端
+var clients = new Set();
+// 消息大小限制（1MB）
+const MESSAGE_SIZE_LIMIT = 1024 * 1024;
+// 速率限制：每个客户端每秒最多10条消息
+const RATE_LIMIT = 10;
+const RATE_LIMIT_WINDOW = 1000; // 1秒
+
+// 存储用于速率限制的消息时间戳
+var clientMessageTimestamps = new Map();
+
+// WebSocket连接处理
+wss.on('connection', function connection(ws, req) {
+  // 将客户端添加到集合中
+  clients.add(ws);
+  console.log('新的WebSocket连接已建立，来自:', req.socket.remoteAddress);
+  
+  // 为该客户端初始化速率限制
+  clientMessageTimestamps.set(ws, []);
+  
+  // 发送欢迎消息
+  ws.send(JSON.stringify({ type: 'welcome', message: '已连接到WebSocket服务器' }));
+  
+  // 处理消息接收
+  ws.on('message', function incoming(message) {
+    // 检查消息大小
+    if (message.length > MESSAGE_SIZE_LIMIT) {
+      console.warn('拒绝超过大小限制的消息');
+      ws.send(JSON.stringify({ 
+        type: 'error', 
+        message: '消息大小超过限制' 
+      }));
+      return;
+    }
+    
+    // 检查速率限制
+    var timestamps = clientMessageTimestamps.get(ws);
+    var now = Date.now();
+    
+    // 移除窗口之外的时间戳
+    timestamps = timestamps.filter(timestamp => now - timestamp < RATE_LIMIT_WINDOW);
+    
+    if (timestamps.length >= RATE_LIMIT) {
+      console.warn('客户端超过速率限制');
+      ws.send(JSON.stringify({ 
+        type: 'error', 
+        message: '超过速率限制' 
+      }));
+      return;
+    }
+    
+    // 添加当前时间戳
+    timestamps.push(now);
+    clientMessageTimestamps.set(ws, timestamps);
+    
+    console.log('收到消息:', message);
+    
+    try {
+      // 解析消息
+      var data = JSON.parse(message);
+      
+      // 净化输入以防止注入攻击
+      if (data.message && typeof data.message === 'string') {
+        data.message = data.message.trim();
+      }
+      if (data.user && typeof data.user === 'string') {
+        data.user = data.user.trim();
+      }
+      
+      // 根据类型处理消息
+      switch (data.type) {
+        case 'ping':
+          ws.send(JSON.stringify({ type: 'pong' }));
+          break;
+        case 'chat':
+          // 向所有客户端广播消息
+          clients.forEach(function each(client) {
+            if (client.readyState === WebSocket.OPEN) {
+              client.send(JSON.stringify({ 
+                type: 'chat', 
+                user: data.user, 
+                message: data.message 
+              }));
+            }
+          });
+          break;
+        default:
+          // 将消息回显给发送者
+          ws.send(JSON.stringify({ 
+            type: 'echo', 
+            data: data 
+          }));
+      }
+    } catch (error) {
+      console.error('处理消息时出错:', error);
+      // 不向客户端暴露错误详情
+      ws.send(JSON.stringify({ 
+        type: 'error', 
+        message: '无效的消息格式' 
+      }));
+    }
+  });
+  
+  // 处理连接关闭
+  ws.on('close', function close() {
+    clients.delete(ws);
+    clientMessageTimestamps.delete(ws);
+    console.log('WebSocket连接已关闭');
+  });
+  
+  // 处理连接错误
+  ws.on('error', function error(err) {
+    console.error('WebSocket错误:', err);
+    clients.delete(ws);
+    clientMessageTimestamps.delete(ws);
+  });
+});
+
+/**
+ * 监听提供的端口，在所有网络接口上
+ */
+
+server.listen(port);
+server.on('error', onError);
+server.on('listening', onListening);
+
+/**
+ * 将端口标准化为数字、字符串或false
+ */
+
+function normalizePort(val) {
+  var port = parseInt(val, 10);
+
+  if (isNaN(port)) {
+    // 命名管道
+    return val;
+  }
+
+  if (port >= 0) {
+    // 端口号
+    return port;
+  }
+
+  return false;
+}
+
+/**
+ * HTTP服务器"error"事件的事件监听器
+ */
+
+function onError(error) {
+  if (error.syscall !== 'listen') {
+    throw error;
+  }
+
+  var bind = typeof port === 'string'
+    ? '管道 ' + port
+    : '端口 ' + port;
+
+  // 用友好的消息处理特定的监听错误
+  switch (error.code) {
+    case 'EACCES':
+      console.error(bind + ' 需要提升权限');
+      process.exit(1);
+      break;
+    case 'EADDRINUSE':
+      console.error(bind + ' 已被占用');
+      process.exit(1);
+      break;
+    default:
+      throw error;
+  }
+}
+
+/**
+ * HTTP服务器"listening"事件的事件监听器
+ */
+
+function onListening() {
+  var addr = server.address();
+  var bind = typeof addr === 'string'
+    ? '管道 ' + addr
+    : '端口 ' + addr.port;
+  debug('正在监听 ' + bind);
+}

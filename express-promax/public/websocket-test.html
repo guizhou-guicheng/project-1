@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket 测试客户端</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: "Inter", "Microsoft Yahei", "PingFang SC", sans-serif;
+        }
+
+        body {
+            background-color: #f5f7fa;
+            min-height: 100vh;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            background-color: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            padding: 2rem;
+            width: 100%;
+            max-width: 700px;
+            transition: box-shadow 0.3s ease;
+        }
+
+        .container:hover {
+            box-shadow: 0 6px 25px rgba(0, 0, 0, 0.12);
+        }
+
+        h1 {
+            color: #2d3748;
+            font-size: 1.8rem;
+            margin-bottom: 1.5rem;
+            text-align: center;
+            font-weight: 600;
+            position: relative;
+            padding-bottom: 0.8rem;
+        }
+
+        h1::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 60px;
+            height: 3px;
+            background-color: #4299e1;
+            border-radius: 3px;
+        }
+
+        h3 {
+            color: #4a5568;
+            font-size: 1.1rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+        }
+
+        h3::before {
+            content: '';
+            width: 4px;
+            height: 20px;
+            background-color: #4299e1;
+            margin-right: 0.8rem;
+            border-radius: 2px;
+        }
+
+        .output {
+            margin: 1.5rem 0;
+            padding: 1rem;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            height: 250px;
+            overflow-y: auto;
+            background-color: #f8fafc;
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+
+        .output div {
+            padding: 0.4rem 0.6rem;
+            margin-bottom: 0.5rem;
+            border-radius: 4px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        /* 区分不同类型的消息 */
+        .output div:nth-child(odd) {
+            background-color: #ffffff;
+        }
+
+        .output div:nth-child(even) {
+            background-color: #f0f7ff;
+        }
+
+        .output div:contains("收到:") {
+            border-left: 3px solid #48bb78;
+        }
+
+        .output div:contains("发送:") {
+            border-left: 3px solid #4299e1;
+        }
+
+        .output div:contains("错误:") {
+            border-left: 3px solid #e53e3e;
+        }
+
+        .input-section {
+            margin: 2rem 0;
+            padding: 1.5rem;
+            background-color: #fafbfc;
+            border-radius: 8px;
+            border: 1px solid #e8e8e8;
+        }
+
+        button {
+            padding: 0.6rem 1.2rem;
+            margin: 0.5rem 0.5rem 0.5rem 0;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+
+        .primary-btn {
+            background-color: #4299e1;
+            color: white;
+        }
+
+        .primary-btn:hover {
+            background-color: #3182ce;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(66, 153, 225, 0.3);
+        }
+
+        .secondary-btn {
+            background-color: #718096;
+            color: white;
+        }
+
+        .secondary-btn:hover {
+            background-color: #5a6778;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(113, 128, 150, 0.3);
+        }
+
+        .success-btn {
+            background-color: #48bb78;
+            color: white;
+        }
+
+        .success-btn:hover {
+            background-color: #38a169;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(72, 187, 120, 0.3);
+        }
+
+        .danger-btn {
+            background-color: #e53e3e;
+            color: white;
+        }
+
+        .danger-btn:hover {
+            background-color: #c53030;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(229, 62, 62, 0.3);
+        }
+
+        input, textarea {
+            width: 100%;
+            padding: 0.8rem 1rem;
+            margin: 0.7rem 0;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 0.95rem;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+            background-color: #ffffff;
+        }
+
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: #4299e1;
+            box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
+        }
+
+        textarea {
+            min-height: 80px;
+            resize: vertical;
+            line-height: 1.5;
+        }
+
+        .command-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.8rem;
+            margin-top: 1rem;
+        }
+
+        /* 滚动条美化 */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* 动画效果 */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(5px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* 响应式适配 */
+        @media (max-width: 600px) {
+            body {
+                padding: 1rem;
+            }
+            .container {
+                padding: 1.5rem;
+            }
+            .command-group {
+                flex-direction: column;
+            }
+            button {
+                width: 100%;
+                margin: 0.5rem 0;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>WebSocket 测试客户端</h1>
+    <div class="output" id="output"></div>
+
+    <div class="input-section">
+        <h3>发送消息</h3>
+        <input type="text" id="messageType" placeholder="消息类型 (心跳包, 聊天, 等)">
+        <input type="text" id="user" placeholder="用户名 (用于聊天消息)">
+        <textarea id="message" placeholder="消息内容"></textarea>
+        <button class="primary-btn" onclick="sendMessage()">发送</button>
+    </div>
+
+    <div class="input-section">
+        <h3>测试命令</h3>
+        <div class="command-group">
+            <button class="success-btn" onclick="sendPing()">发送心跳包</button>
+            <button class="primary-btn" onclick="sendChat()">发送聊天消息</button>
+            <button class="secondary-btn" onclick="sendEcho()">发送回显消息</button>
+            <button class="danger-btn" onclick="clearOutput()">清空输出</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let ws;
+
+    // 连接到WebSocket服务器
+    function connect() {
+        ws = new WebSocket('ws://localhost:2000');
+
+        ws.onopen = function() {
+            addOutput('已连接到WebSocket服务器');
+        };
+
+        ws.onmessage = function(event) {
+            addOutput('收到: ' + event.data);
+        };
+
+        ws.onclose = function() {
+            addOutput('已断开与WebSocket服务器的连接');
+        };
+
+        ws.onerror = function(error) {
+            addOutput('错误: ' + error);
+        };
+    }
+
+    // 添加输出到控制台
+    function addOutput(message) {
+        const output = document.getElementById('output');
+        const div = document.createElement('div');
+        div.textContent = new Date().toLocaleTimeString() + ': ' + message;
+
+        // 根据消息类型添加不同的样式标记
+        if (message.includes('收到:')) div.style.borderLeft = '3px solid #48bb78';
+        if (message.includes('发送:')) div.style.borderLeft = '3px solid #4299e1';
+        if (message.includes('错误:')) div.style.borderLeft = '3px solid #e53e3e';
+        if (message.includes('已连接') || message.includes('已断开')) div.style.borderLeft = '3px solid #9f7aea';
+
+        output.appendChild(div);
+        output.scrollTop = output.scrollHeight;
+    }
+
+    // 发送消息
+    function sendMessage() {
+        const type = document.getElementById('messageType').value;
+        const user = document.getElementById('user').value;
+        const message = document.getElementById('message').value;
+
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            const data = {
+                type: type || 'echo',
+                user: user,
+                message: message
+            };
+            ws.send(JSON.stringify(data));
+            addOutput('发送: ' + JSON.stringify(data));
+
+            // 清空输入框
+            document.getElementById('messageType').value = '';
+            document.getElementById('user').value = '';
+            document.getElementById('message').value = '';
+        } else {
+            addOutput('错误: WebSocket未连接');
+        }
+    }
+
+    // 测试命令
+    function sendPing() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'ping' }));
+            addOutput('发送: {"type": "ping"}');
+        } else {
+            addOutput('错误: WebSocket未连接');
+        }
+    }
+
+    function sendChat() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            const message = {
+                type: 'chat',
+                user: '测试用户',
+                message: '来自测试客户端的问候！'
+            };
+            ws.send(JSON.stringify(message));
+            addOutput('发送: ' + JSON.stringify(message));
+        } else {
+            addOutput('错误: WebSocket未连接');
+        }
+    }
+
+    function sendEcho() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            const message = {
+                type: 'echo',
+                data: '测试回显消息'
+            };
+            ws.send(JSON.stringify(message));
+            addOutput('发送: ' + JSON.stringify(message));
+        } else {
+            addOutput('错误: WebSocket未连接');
+        }
+    }
+
+    function clearOutput() {
+        document.getElementById('output').innerHTML = '';
+        addOutput('系统: 输出面板已清空');
+    }
+
+    // 页面加载时自动连接
+    window.onload = connect;
+</script>
+</body>
+</html>
